@@ -1,0 +1,5 @@
+audio_test/*
+audio_train/*
+*.png
+*.npy
+*.zip
