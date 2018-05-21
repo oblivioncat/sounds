@@ -3,6 +3,7 @@ import numpy as np
 import scipy
 import shutil
 import pandas as pd
+import math
 import tensorflow as tf
 from keras.backend.tensorflow_backend import set_session
 from keras import losses, models, optimizers
@@ -12,16 +13,16 @@ from keras.callbacks import (EarlyStopping, LearningRateScheduler,
                           ModelCheckpoint, TensorBoard, ReduceLROnPlateau)
 from keras.layers import (Convolution1D, Dense, Dropout, GlobalAveragePooling1D,
                        GlobalMaxPool1D, Input, MaxPool1D, concatenate)
-from keras.utils import Sequence, to_categorical
+from keras.utils import Sequence, to_categorical,multi_gpu_model
 from keras.models import load_model
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
+# os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 
 class Config(object):
     def __init__(self,
                  sampling_rate=16000, audio_duration=2, n_classes=41,
                  use_mfcc=False, n_folds=10, learning_rate=0.0001,
-                 max_epochs=50, n_mfcc=20):
+                 max_epochs=50, n_mfcc=20, gpus=4):
         self.sampling_rate = sampling_rate
         self.audio_duration = audio_duration
         self.n_classes = n_classes
@@ -30,6 +31,7 @@ class Config(object):
         self.n_folds = n_folds
         self.learning_rate = learning_rate
         self.max_epochs = max_epochs
+        self.gpus = gpus
 
         self.audio_length = self.sampling_rate * self.audio_duration
         if self.use_mfcc:
@@ -154,11 +156,20 @@ def get_1d_conv_model(config):
     x = Dense(128, activation=relu)(x)
     out = Dense(nclass, activation=softmax)(x)
 
-    model = models.Model(inputs=inp, outputs=out)
-    opt = optimizers.Adam(config.learning_rate)
 
+    model = models.Model(inputs=inp, outputs=out)
+
+    model = multi_gpu_model(model, gpus=config.gpus)
+    opt = optimizers.Adam(config.learning_rate)
     model.compile(optimizer=opt, loss=losses.categorical_crossentropy, metrics=['acc'])
     return model
+
+def generator(x,y,batch_size):
+    ylen = len(y)
+    loopcount = ylen // batch_size
+    while (True):
+        i = np.random.randint(0, loopcount)
+        yield x[i * batch_size:(i + 1) * batch_size], y[i * batch_size:(i + 1) * batch_size]
 
 if __name__ == '__main__':
 
@@ -171,18 +182,26 @@ if __name__ == '__main__':
     X = np.load('train.npy')
     y = np.load('label.npy')
     X = np.expand_dims(X, axis=2)
+
     model = get_1d_conv_model(config)
-    # y=y[:3000]
+    # X = X[:2000]
+    # y=y[:2000]
     y = np_utils.to_categorical(y, config.n_classes)
     # cfg = tf.ConfigProto()
     # cfg.gpu_options.per_process_gpu_memory_fraction = 0.3
     # set_session(tf.Session(config=cfg))
-    model.fit(X,y,batch_size=32,epochs=40,shuffle=True)
-    loss_and_metrics = model.evaluate(X,y,batch_size=8)
-    model.save('k1.h5')
 
-    # model = load_model('k1.h5')
-    test = X[:100]
+    # model.fit_generator(generator(X,y,batch_size=32),steps_per_epoch=len(X)//32,epochs=10)
+    model.fit(X,y,batch_size=32,epochs=10,shuffle=True)
+    loss_and_metrics = model.evaluate(X,y,batch_size=32)
+    model.save('k2.h5')
+
+    model = load_model('k2.h5')
+    test = np.load('eval.npy')
+    test = np.expand_dims(test, axis=2)
+    test_label = np.load('eval_label.npy')
+    # test = X[:1000]
+    # test_label = y[:1000]
     pred = model.predict(test)
     pred_idx = np.argmax(pred,axis=1)
 
@@ -192,11 +211,15 @@ if __name__ == '__main__':
     LABELS = list(np.unique(labels))
     label_idx = {i:label for i, label in enumerate(LABELS)}
     pred_name=[]
+    acc = 0
     for i,n in enumerate(pred_idx):
-        pred_name.append([train_names[i],label_idx[n]])
+        if pred_idx[i] == test_label[i]:
+            acc +=1
+        pred_name.append([train_names[i+3000],label_idx[n]])
     print(pred_name)
-    df = pd.DataFrame(pred_name,columns=['fname','classes'],index=None)
-    print(df)
-    df.to_csv('predict.csv',index=None)
+    print(acc/1000.0)
+    # df = pd.DataFrame(pred_name,columns=['fname','classes'],index=None)
+    # print(df)
+    # df.to_csv('predict.csv',index=None)
 
 

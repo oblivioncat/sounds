@@ -65,7 +65,7 @@ label_idx = {label: i for i, label in enumerate(LABELS)}
 print(label_idx)
 max_len = 0
 
-for i in range(3000):
+for i in range(3000,4000):
     # print(train_names[i],train_labels[i])
     f = wave.open(train_path + train_names[i], 'rb')
     params = f.getparams()
@@ -85,7 +85,8 @@ print(train_label)
 
 # 2.将所有数据padding成一样长度
 
-np.save('train',data)
-np.save('label',train_label)
-
+# np.save('train',data)
+# np.save('label',train_label)
+np.save('eval',data)
+np.save('eval_label',train_label)
 
